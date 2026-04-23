@@ -25,7 +25,7 @@ class ProductController extends Controller
             $query->where('category_id', $request->category_id);
         }
 
-        $products = $query->paginate(15);
+        $products = $query->paginate(5);
 
         return ProductResource::collection($products);
     }
