@@ -1,6 +1,18 @@
+<!--
+  Компонент: список товаров для администратора (CRUD)
+  Путь: /admin/products
+  Что делает:
+    - Загружает список товаров с пагинацией (через API)
+    - Показывает таблицу с кнопками "Редактировать" и "Удалить"
+    - Удаление с подтверждением через модальное окно
+    - Пагинация (кнопки Назад/Вперёд)
+    - При неавторизованном запросе (401) чистит токен и редиректит на логин
+  Использует: AdminLayout (проверяет наличие токена)
+-->
 <template>
     <AdminLayout>
         <div class="container mx-auto px-4 py-8">
+            <!-- Заголовок и кнопка добавления -->
             <div class="flex justify-between items-center mb-6">
                 <h1 class="text-2xl font-bold text-gray-800">Управление товарами</h1>
                 <Link href="/admin/products/create"
@@ -9,10 +21,12 @@
                 </Link>
             </div>
 
+            <!-- Спиннер загрузки -->
             <div v-if="loading" class="flex justify-center py-12">
                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
             </div>
 
+            <!-- Таблица товаров (появляется после загрузки) -->
             <div v-else>
                 <div class="overflow-x-auto bg-white rounded-lg shadow">
                     <table class="min-w-full divide-y divide-gray-200">
@@ -32,8 +46,10 @@
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ product.category.name }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ product.price }} ₽</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2">
+                                <!-- Ссылка на редактирование (Inertia) -->
                                 <Link :href="`/admin/products/${product.id}/edit`"
                                       class="text-indigo-600 hover:text-indigo-900">Редактировать</Link>
+                                <!-- Кнопка удаления (открывает модалку) -->
                                 <button @click="confirmDelete(product)"
                                         class="text-red-600 hover:text-red-900">Удалить</button>
                             </td>
@@ -42,7 +58,7 @@
                     </table>
                 </div>
 
-                <!-- Пагинация -->
+                <!-- Пагинация (блок кнопок) -->
                 <div class="flex justify-between items-center mt-6">
                     <button @click="changePage(products.current_page - 1)"
                             :disabled="!products.prev_page_url"
@@ -61,7 +77,7 @@
             </div>
         </div>
 
-        <!-- Модалка подтверждения удаления -->
+        <!-- Модальное окно подтверждения удаления -->
         <div v-if="showModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white rounded-lg p-6 max-w-sm mx-auto">
                 <p class="text-gray-800 mb-4">Удалить товар "{{ productToDelete?.name }}"?</p>
@@ -77,23 +93,36 @@
 </template>
 
 <script setup>
-import AdminLayout from '@/Layouts/AdminLayout.vue';
-import { Link, router } from '@inertiajs/vue3';
-import { ref, onMounted } from 'vue';
-import axios from '@/axios';
+// Импорты
+import AdminLayout from '@/Layouts/AdminLayout.vue';   // админ-лэйаут (проверяет токен)
+import { Link, router } from '@inertiajs/vue3';        // Inertia-ссылки и роутер
+import { ref, onMounted } from 'vue';                  // реактивность, хук монтирования
+import axios from '@/axios';                           // настроенный axios с токеном
 
-const products = ref({ data: [], current_page: 1, last_page: 1, next_page_url: null, prev_page_url: null });
-const loading = ref(false);
-const showModal = ref(false);
-const productToDelete = ref(null);
+// --- Реактивные данные ---
+// Объект пагинации (структура адаптирована под ответ API)
+const products = ref({
+    data: [],           // массив товаров
+    current_page: 1,
+    last_page: 1,
+    next_page_url: null,
+    prev_page_url: null
+});
+const loading = ref(false);           // флаг загрузки
+const showModal = ref(false);         // показывать модалку подтверждения удаления
+const productToDelete = ref(null);    // товар, который собираемся удалить
 
+// --- Методы ---
+
+// Загрузка товаров с учётом пагинации
 const fetchProducts = async (page = 1) => {
     loading.value = true;
     try {
+        // GET /api/products?page=...
         const response = await axios.get('/products', { params: { page } });
-        // Адаптируем структуру пагинации
+        // Адаптируем структуру пагинации Laravel под удобный формат
         products.value = {
-            data: response.data.data,
+            data: response.data.data,                         // массив товаров
             current_page: response.data.meta.current_page,
             last_page: response.data.meta.last_page,
             next_page_url: response.data.links.next,
@@ -101,6 +130,7 @@ const fetchProducts = async (page = 1) => {
         };
     } catch (err) {
         console.error(err);
+        // Если токен просрочен или невалиден, очищаем хранилище и редиректим на логин
         if (err.response?.status === 401) {
             localStorage.removeItem('token');
             router.visit('/login');
@@ -110,23 +140,29 @@ const fetchProducts = async (page = 1) => {
     }
 };
 
+// Смена страницы пагинации
 const changePage = (page) => {
     if (page >= 1 && page <= products.value.last_page) {
         fetchProducts(page);
     }
 };
 
+// Открытие модалки перед удалением
 const confirmDelete = (product) => {
     productToDelete.value = product;
     showModal.value = true;
 };
 
+// Удаление товара (после подтверждения)
 const deleteProduct = async () => {
     if (!productToDelete.value) return;
     try {
+        // DELETE /api/products/{id}
         await axios.delete(`/products/${productToDelete.value.id}`);
+        // Закрываем модалку и очищаем данные удаляемого товара
         showModal.value = false;
         productToDelete.value = null;
+        // Перезагружаем текущую страницу списка (чтобы удалённый товар исчез)
         await fetchProducts(products.value.current_page);
     } catch (err) {
         console.error(err);
@@ -134,6 +170,8 @@ const deleteProduct = async () => {
     }
 };
 
+// --- Хук монтирования ---
+// При загрузке компонента сразу запрашиваем первую страницу товаров
 onMounted(() => {
     fetchProducts();
 });
